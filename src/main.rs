@@ -1,4 +1,4 @@
-use kube::config::{create_client_builder, ConfigOptions};
+use kube::config::Kubeconfig;
 use openssl::nid::Nid;
 use openssl::x509::X509;
 
@@ -6,23 +6,28 @@ type AsyncResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 #[tokio::main]
 async fn main() -> AsyncResult<()> {
-    let user = whoami(Default::default()).await?;
+    let user = whoami().await?;
     println!("User: {}", user.name);
     println!("Groups: {}", user.groups.join(", "));
     Ok(())
 }
 
-async fn whoami(options: ConfigOptions) -> AsyncResult<UserInfo> {
-    let (_, config_loader) = create_client_builder(options).await?;
+async fn whoami() -> AsyncResult<UserInfo> {
+    let c = Kubeconfig::read()?;
 
-    if let Some(client_pem) = config_loader.user.client_certificate_data {
+    let mut auth_info = None;
+    for user in c.auth_infos {
+        if user.name == c.current_context {
+            auth_info = Some(user.auth_info);
+        }
+    }
+
+    let auth_info = auth_info.ok_or(Box::new(UserNotFound {}))?;
+    if let Some(client_pem) = auth_info.client_certificate_data {
         let client_pem = X509::from_pem(&base64::decode(&client_pem)?)?;
         UserInfo::from_x509(&client_pem)
     } else {
-        let name = config_loader
-            .user
-            .username
-            .ok_or(Box::new(UserNotFound {}))?;
+        let name = auth_info.username.ok_or(Box::new(UserNotFound {}))?;
         Ok(UserInfo::new(name, vec![]))
     }
 }
