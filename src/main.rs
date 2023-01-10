@@ -19,18 +19,21 @@ async fn whoami() -> AsyncResult<UserInfo> {
 
     let mut auth_info = None;
     for user in c.auth_infos {
-        if user.name == c.current_context {
+        if Some(user.name) == c.current_context {
             auth_info = Some(user.auth_info);
         }
     }
 
     let auth_info = auth_info.ok_or_else(|| Box::new(UserNotFound {}))?;
-    if let Some(client_pem) = auth_info.client_certificate_data {
+    if let Some(client_pem) = auth_info
+        .as_ref()
+        .and_then(|auth_info| auth_info.client_certificate_data.as_ref())
+    {
         let client_pem = X509::from_pem(&BASE64_STANDARD.decode(client_pem)?)?;
         UserInfo::from_x509(&client_pem)
     } else {
         let name = auth_info
-            .username
+            .and_then(|auth_info| auth_info.username)
             .ok_or_else(|| Box::new(UserNotFound {}))?;
         Ok(UserInfo::new(name, vec![]))
     }
